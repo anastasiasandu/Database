@@ -1,0 +1,242 @@
+11.
+-- Afisati datele despre film si aduceti numele tarii, categoriei si limbii, afisate cu litere mari pentru toate coloanele de tip caractere
+
+
+SELECT UPPER(F.Denumire) AS Film,
+	   F.IMDBRating,
+	   F.Durata,
+	   F.AnAparitie,
+	   UPPER(T.Denumire) AS Tara,
+	   UPPER(C.Denumire) AS Categorie,
+	   UPPER(L.Denumire) AS Limba
+FROM Film F
+INNER JOIN Tara T
+	ON T.ID = F.TaraOrigineID
+INNER JOIN Categorie C
+	ON C.ID = F.CategorieID
+INNER JOIN Limba L
+	ON L.ID	 = F.LimbaID
+WHERE F.Denumire LIKE 'T%'
+	AND IMDBRating > 9
+ORDER BY C.Denumire
+
+
+--Afisati numele, varsta si sexul actorilor care au luat un premiu ce contine cuvantul "Best"
+
+SELECT A.Nume,
+	   A.Varsta,
+	   A.Sex
+FROM Actor A
+WHERE ID IN 
+(
+SELECT AC2.ID
+FROM ACTOR AC2
+INNER JOIN ActorPremiuMapping APM
+	ON AC2.ID = APM.ActorID
+INNER JOIN Premiu P
+	ON P.ID = APM.PremiuID
+WHERE P.Denumire LIKE '%Best%'
+	AND A.Sex = 'F'
+)
+
+--Afisati denumirea, actorii si premiul filmelor realizate dupa anul 2000 care au fost premiate. Denumirea se va numi Film, actorii 
+vor fi scrisi pe o singura coloana iar premiul va avea denumirea Premiu
+
+
+SELECT Film,
+	   STRING_AGG (Actor, ',') AS  Actor,
+	   P.Denumire AS Premiu
+FROM
+(
+
+SELECT F.Denumire AS Film,
+	   A.Nume AS Actor,
+	   FPM.PremiuID
+FROM Actor A
+INNER JOIN FilmActorMapping FAM
+	ON A.ID = FAM.ActorID
+INNER JOIN Film F
+	ON F.ID = FAM.FilmID
+INNER JOIN FilmPremiuMapping FPM
+	ON FPM.FilmID = F.ID
+WHERE F.AnAparitie > 2000
+) S
+INNER JOIN Premiu P
+	ON P.ID = S.PremiuID
+GROUP BY  Film, P.Denumire
+ORDER BY 1 
+
+--Afisati filmele care au primit orice premiu, in ordinea descrescatoare a numarului de premii si adaugand o coloana astfel :
+daca filmul a primit mai mult de 5 premii se va scrie in coloana " Bine cotat" , daca a primit exact 5 se va scrie "Ok", altfel se va scrie "Normal"
+
+WITH FilmPremii AS
+(
+SELECT F.Denumire AS Film,
+	   COUNT(FPM.ID) + COUNT(SPM.ID) + COUNT(RPM.ID) + COUNT(APM.ID) AS NrPremii
+FROM Film F
+INNER JOIN FilmActorMapping FAM
+	ON F.ID = FAM.FilmID
+INNER JOIN FilmRegizorMapping FRM
+	ON F.ID = FRM.FilmID
+INNER JOIN FilmScenaristMapping FSM 
+	ON F.ID = FSM.FilmID
+LEFT JOIN FilmPremiuMapping FPM
+	ON FPM.FilmID = F.ID
+LEFT JOIN ScenaristPremiuMapping SPM
+	ON SPM.ScenaristID = FSM.ScenaristID
+LEFT JOIN RegizorPremiuMapping RPM
+	ON RPM.RegizorID = FRM.RegizorID
+LEFT JOIN ActorPremiuMapping APM
+	ON APM.ActorID = FAM.ActorID
+GROUP BY F.Denumire
+HAVING COUNT(FPM.ID) + COUNT(SPM.ID) + COUNT(RPM.ID) + COUNT(APM.ID) > 0
+)
+
+SELECT Film,
+	   NrPremii,
+	   CASE 
+			WHEN NrPremii > 5 THEN 'Bine cotat'
+			WHEN NrPremii = 5 THEN 'Ok'
+			ELSE 'Normal'
+	   END AS Review
+FROM FilmPremii
+ORDER BY 2 DESC
+
+
+--Pentru filmele care au primit un premiu afisati o coloana numita Informatii in care se va scrie "Filmul nume_film produs de studioul nume_studio
+in anul an_studio si luna luna_studio a primit premiul premiu_denumire
+
+WITH FilmStudioPremiu AS
+(
+
+SELECT F.Denumire AS Film,
+	   S.Denumire AS Studio,
+	   S.DataInfintare,
+	   P.Denumire AS Premiu
+FROM Studio S
+INNER JOIN Film F
+	ON S.ID = F.StudioID
+INNER JOIN FilmPremiuMapping FPM
+	ON FPM.FilmID = F.ID
+INNER JOIN Premiu P
+	ON P.ID = FPM.PremiuID
+
+)
+
+SELECT CONCAT('Filmul ', Film, ', produs de studioul ', Studio, ', infiintat in anul', YEAR(DataInfintare),',luna ',DATEPART(MONTH,DataInfintare),' a primit premiul ',Premiu) AS Informatii
+FROM FilmStudioPremiu 
+
+--Adaugati o coloana in Film numita NrPremii unde se va scrie Bine cotat daca filmul a primit mai mult de 5 premii, Ok daca a primit exact 5 premii 
+Normal daca a primit mai putin de 5 si Fara premiu daca nu a primit niciunul
+
+UPDATE Film
+SET Review = 
+	  ISNULL(CASE 
+			WHEN NrPremii > 5 THEN 'Bine cotat'
+			WHEN NrPremii = 5 THEN 'Ok'
+			WHEN NrPremii < 5 THEN 'Normal'
+	   END,'Fara premiu') 
+
+FROM FilmPremii FP
+RIGHT JOIN Film F
+ON FP.Film = F.Denumire
+12. 
+--Creati 2 operatii de update pe Actor utilizand subcereri astfel incat sa se adauge o noua coloana numita PremiuCastigat
+care va fi = 1 daca actorul a primit vreun premiu si = 0 daca nu
+
+	UPDATE Actor
+	SET PremiuCastigat = 1
+	WHERE ID IN 
+	(
+	SELECT DISTINCT ActorID
+	FROM ActorPremiuMapping 
+)
+	UPDATE Actor
+	SET PremiuCastigat = 0
+	WHERE ID NOT IN 
+	(
+	SELECT DISTINCT ActorID
+	FROM ActorPremiuMapping 
+) 
+
+--Stergeti din FilmActorMapping filmele care au IMDB Rating-ul mai mic decat 9
+
+	DELETE FROM FilmActorMapping
+	WHERE FilmID IN
+	(
+	SELECT ID
+	FROM Film 
+	WHERE IMDBRating < 9
+)
+
+13. 
+
+Creati o secventa pentru a insera in Studio ID ul tarii
+
+CREATE SEQUENCE TaraStudioSeq
+START with  5
+INCREMENT BY 12
+
+
+
+DECLARE @VAR INT
+SET @VAR = 1
+
+DECLARE @Seq int
+
+
+WHILE (@VAR < 11)
+BEGIN
+SELECT @Seq =  NEXT VALUE FOR TARASTUDIOSEQ
+
+
+update studio 
+set TaraID = @Seq
+WHERE ID = @VAR
+
+SET @VAR = @VAR + 1
+
+
+END
+
+
+14.
+--Creati o vizualizare compusa care va afisa denumirea filmelor care au luat orice fel de premiu intr-o coloana numita Film si numarul de premii pe care
+l-au luat intr-o coloana numita NrPremii 
+
+CREATE VIEW FilmPremiu AS
+
+SELECT F.Denumire AS Film,
+	   COUNT(FPM.ID) + COUNT(SPM.ID) + COUNT(RPM.ID) + COUNT(APM.ID) AS NrPremii
+FROM Film F
+INNER JOIN FilmActorMapping FAM
+	ON F.ID = FAM.FilmID
+INNER JOIN FilmRegizorMapping FRM
+	ON F.ID = FRM.FilmID
+INNER JOIN FilmScenaristMapping FSM 
+	ON F.ID = FSM.FilmID
+LEFT JOIN FilmPremiuMapping FPM
+	ON FPM.FilmID = F.ID
+LEFT JOIN ScenaristPremiuMapping SPM
+	ON SPM.ScenaristID = FSM.ScenaristID
+LEFT JOIN RegizorPremiuMapping RPM
+	ON RPM.RegizorID = FRM.RegizorID
+LEFT JOIN ActorPremiuMapping APM
+	ON APM.ActorID = FAM.ActorID
+GROUP BY F.Denumire
+HAVING COUNT(FPM.ID) + COUNT(SPM.ID) + COUNT(RPM.ID) + COUNT(APM.ID) > 0
+15. 
+--Creati o cerere care sa afiseze toti actorii care au ID ul mai mare decat 5 si varsta mai mare decat 15. Creati un index
+care sa optimizeze aceasta cerere 
+
+CREATE INDEX Index_Actor
+ON Actor (ID, Varsta)
+
+SELECT * FROM Actor
+WHERE ID > 5 AND Varsta > 15
+
+
+
+
+
+
